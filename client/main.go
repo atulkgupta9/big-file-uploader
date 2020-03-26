@@ -51,6 +51,7 @@ func chunkWholeFile(filename string, appconfig *common.AppConfig) {
 	// from the file.
 	chunksizes := make([]chunk, concurrency)
 
+	fx := fileinfo.Name() + sid.Id()
 	// All buffer sizes are the same in the normal case. Offsets depend on the
 	// index. Second go routine should start at 100, for example, given our
 	// buffer size of 100.
@@ -75,7 +76,7 @@ func chunkWholeFile(filename string, appconfig *common.AppConfig) {
 	wg2.Add(concurrency)
 	t1 := time.Now()
 	fmt.Println("total chunks :", concurrency)
-	fx := filename + sid.Id()
+	_ = filename + sid.Id()
 	for i := 0; i < concurrency; i++ {
 		fmt.Printf("%d thread has been started \n", i)
 		wg2.Add(1)

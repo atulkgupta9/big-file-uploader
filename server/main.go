@@ -21,13 +21,14 @@ func startServer(port string) {
 	log.Fatalln(http.ListenAndServe(":"+port, router))
 }
 
-var file, err = os.Create("ajd")
+var file *os.File
 
 func handleFilePut(rw http.ResponseWriter, req *http.Request, p httprouter.Params) {
 	query := req.URL.Query()
-	total, _ := query.Get("total"), query.Get("filename")
+	total, filename := query.Get("total"), query.Get("filename")
 	agent := req.Header.Get("User-Agent")
-	fmt.Println("agent ", agent)
+	fmt.Println("agent ", agent, filename)
+	file, _ = os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
 	ch, err := ioutil.ReadAll(req.Body)
 	off, _ := strconv.Atoi(p.ByName("id"))
 	cf := (int64)(off-1) * 1024
