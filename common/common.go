@@ -7,13 +7,12 @@ import (
 	"github.com/spf13/viper"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 )
 
 func GetAppConfig() *AppConfig {
 	var appConfig AppConfig
-	//viper.SetConfigName("config-local")
 	viper.SetConfigName("config")
-
 	viper.SetConfigType("yml")
 	viper.AddConfigPath("..")
 	if err := viper.ReadInConfig(); err != nil {
@@ -44,13 +43,11 @@ type ServerResp struct {
 	Name   string `json:"name,omitempty"`
 }
 
-func DoRequest(method, url, agent string, body []byte) (ServerResp, error) {
+func DoRequest(method, url, agent string, offset int64, body []byte) (ServerResp, error) {
 	client := &http.Client{}
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	req, _ := http.NewRequest(method, url, bytes.NewReader(body))
 	req.Header.Set("User-Agent", agent)
-	if err != nil {
-		return ServerResp{}, err
-	}
+	req.Header.Set("offset", strconv.FormatInt(offset, 10))
 	if resp, err := client.Do(req); err != nil {
 		return ServerResp{}, err
 	} else {
