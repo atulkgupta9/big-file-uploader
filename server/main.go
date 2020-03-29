@@ -4,59 +4,89 @@ import (
 	"../common"
 	"encoding/json"
 	"fmt"
+	"github.com/chilts/sid"
 	"github.com/julienschmidt/httprouter"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strconv"
 )
 
+type ResponseData struct {
+	Message  string `json:"res"`
+	Filename string `json:"filename"`
+}
+
 func startServer(port string) {
 	router := httprouter.New()
-
-	router.GET("/upload/:id", handleFilePut)
-
+	router.GET(common.CHUNK_UPLOAD_ENDPOINT, handleChunkUpload)
+	router.POST(common.FILE_UPLOAD_ENDPOINT, handleFileUpload)
 	log.Println("Listening on port", port)
 	log.Fatalln(http.ListenAndServe(":"+port, router))
+
 }
 
-var file, err = os.Create("ajd")
+func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprouter.Params) {
+	file, header, _ := req.FormFile("file")
+	defer file.Close()
+	appConfig := common.GetAppConfig()
+	chunkAndSend(appConfig, &file, header)
+	respondJson(rw, http.StatusOK, &ResponseData{Filename: header.Filename, Message: "successfully uploaded"})
 
-func handleFilePut(rw http.ResponseWriter, req *http.Request, p httprouter.Params) {
+}
+
+func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *multipart.FileHeader) {
+	filesize := header.Size
+	iterations := filesize / appconfig.Chunk.Size
+	fx := header.Filename + sid.Id()
+	remainder := filesize % appconfig.Chunk.Size
+	total := iterations
+	if remainder != 0 {
+		total = total + 1
+	}
+	for i := int64(0); i < iterations; i++ {
+		toRead := make([]byte, appconfig.Chunk.Size)
+		(*file).ReadAt(toRead, appconfig.Chunk.Size*i)
+		common.SendRequest(toRead, appconfig.Chunk.Size*i, i+1, fx, total)
+	}
+	if remainder != 0 {
+		toRead := make([]byte, remainder)
+		(*file).ReadAt(toRead, appconfig.Chunk.Size*iterations)
+		common.SendRequest(toRead, appconfig.Chunk.Size*iterations, total, fx, total)
+	}
+
+}
+
+func handleChunkUpload(rw http.ResponseWriter, req *http.Request, p httprouter.Params) {
 	query := req.URL.Query()
-	total, _ := query.Get("total"), query.Get("filename")
+	total, filename := query.Get("total"), query.Get("filename")
 	agent := req.Header.Get("User-Agent")
-	fmt.Println("agent ", agent)
-	ch, err := ioutil.ReadAll(req.Body)
-	off, _ := strconv.Atoi(p.ByName("id"))
-	cf := (int64)(off-1) * 1024
-	n, err := file.WriteAt(ch, cf)
-	fmt.Println("n, err", n, err)
+	offset := req.Header.Get("offset")
+	var file *os.File
+	file, _ = os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
+	chunk, _ := ioutil.ReadAll(req.Body)
+	off, _ := strconv.ParseInt(offset, 10, 64)
+	file.WriteAt(chunk, off)
+	if agent == common.AGENT_CLIENT {
+		sendToAllOtherServers(common.GetAppConfig(), req.RequestURI, off, chunk)
+	}
 	if x := checkIfAllChunksReceived(total, p.ByName("id")); x {
-		fmt.Println("done completed : ")
-		return
+		fmt.Println("All chunks received, fileId : ", filename)
+		respondJson(rw, http.StatusOK, &ResponseData{Filename: filename, Message: "successfully uploaded"})
 	}
-	if agent == "client" {
-		sendToAllOtherServers(common.GetAppConfig(), req.RequestURI, ch)
-	}
-	respondJson(rw, http.StatusOK, &SqlData{Res: req.Host})
 }
 
-func sendToAllOtherServers(config *common.AppConfig, url string, body []byte) {
+func sendToAllOtherServers(config *common.AppConfig, url string, offset int64, body []byte) {
 	for i := 0; i < len(config.Server.Addr); i++ {
 		url := config.Server.Addr[i] + url
-		fmt.Println("url in server ", url)
-		common.DoRequest("GET", url, "server", body)
+		common.DoRequest(common.GET_METHOD, url, common.AGENT_SERVER, offset, body)
 	}
 }
 
 func checkIfAllChunksReceived(total string, id string) bool {
 	return id == total
-}
-
-type SqlData struct {
-	Res string `json:"res"`
 }
 
 func respondJson(w http.ResponseWriter, status int, payload interface{}) {
@@ -72,8 +102,6 @@ func respondJson(w http.ResponseWriter, status int, payload interface{}) {
 }
 
 func main() {
-	appconfig := common.GetAppConfig()
-	fmt.Println(appconfig)
 	startServerAny()
 }
 

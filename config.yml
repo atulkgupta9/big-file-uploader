@@ -1,5 +1,6 @@
 Chunk:
-  Size: 1024
+  Size: 1000000
+  Filename: "/home/use/schoolcsv.csv"
 
 
 Server:

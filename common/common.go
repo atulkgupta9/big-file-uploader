@@ -2,18 +2,37 @@ package common
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"github.com/spf13/viper"
-	"io/ioutil"
+	"math/rand"
 	"net/http"
+	"strconv"
+	"time"
 )
+
+const GET_METHOD = "GET"
+
+const CHUNK_UPLOAD_ENDPOINT = "/upload/:id"
+const FILE_UPLOAD_ENDPOINT = "/file"
+
+const AGENT_CLIENT = "client"
+const AGENT_SERVER = "server"
+
+type AppConfig struct {
+	Chunk  Chunk
+	Server Server
+}
+type Chunk struct {
+	Size     int64
+	Filename string
+}
+type Server struct {
+	Addr []string
+}
 
 func GetAppConfig() *AppConfig {
 	var appConfig AppConfig
-	//viper.SetConfigName("config-local")
 	viper.SetConfigName("config")
-
 	viper.SetConfigType("yml")
 	viper.AddConfigPath("..")
 	if err := viper.ReadInConfig(); err != nil {
@@ -26,46 +45,22 @@ func GetAppConfig() *AppConfig {
 	return &appConfig
 }
 
-type AppConfig struct {
-	Chunk  Chunk
-	Server Server
-}
-type Chunk struct {
-	Size int
-}
-type Server struct {
-	Addr []string
-}
-type ServerResp struct {
-	code   int    `json:"-"`
-	ID     string `json:"id,omitempty"`
-	Offset int64  `json:"offset,omitempty"`
-	Bytes  int64  `json:"bytes,omitempty"`
-	Name   string `json:"name,omitempty"`
-}
-
-func DoRequest(method, url, agent string, body []byte) (ServerResp, error) {
+func DoRequest(method, url, agent string, offset int64, body []byte) error {
 	client := &http.Client{}
-	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	req, _ := http.NewRequest(method, url, bytes.NewReader(body))
 	req.Header.Set("User-Agent", agent)
-	if err != nil {
-		return ServerResp{}, err
-	}
-	if resp, err := client.Do(req); err != nil {
-		return ServerResp{}, err
-	} else {
-		defer resp.Body.Close()
+	req.Header.Set("offset", strconv.FormatInt(offset, 10))
+	_, err := client.Do(req)
+	return err
+}
 
-		if rbody, err := ioutil.ReadAll(resp.Body); err != nil {
-			return ServerResp{}, err
-		} else {
-			sresp := ServerResp{}
+func GetMeServerAdd() string {
+	rand.Seed(time.Now().UnixNano())
+	appconfig := GetAppConfig()
+	return appconfig.Server.Addr[rand.Intn(len(appconfig.Server.Addr))]
+}
 
-			if err := json.Unmarshal(rbody, &sresp); err != nil {
-				return ServerResp{}, err
-			}
-			return sresp, nil
-		}
-	}
-	return ServerResp{}, nil
+func SendRequest(buffer []byte, offset int64, sequence int64, fx string, total int64) {
+	url := GetMeServerAdd() + CHUNK_UPLOAD_ENDPOINT + strconv.FormatInt(sequence, 10) + "?&filename=" + fx + "&total=" + strconv.FormatInt(total, 10)
+	DoRequest(GET_METHOD, url, AGENT_CLIENT, offset, buffer)
 }
