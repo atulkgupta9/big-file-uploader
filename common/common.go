@@ -23,7 +23,8 @@ type AppConfig struct {
 	Server Server
 }
 type Chunk struct {
-	Size int64
+	Size     int64
+	Filename string
 }
 type Server struct {
 	Addr []string

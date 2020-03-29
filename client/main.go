@@ -6,15 +6,13 @@ import (
 	"os"
 )
 
-//todo where to get file input
 func main() {
 	appconfig := common.GetAppConfig()
-	filename := "/home/use/Flipkart-Labels-03-Jan-2020-02-42.pdf"
-	chunkWholeFile(filename, appconfig)
+	chunkWholeFile(appconfig)
 }
 
-func chunkWholeFile(filename string, appconfig *common.AppConfig) {
-	file, _ := os.Open(filename)
+func chunkWholeFile(appconfig *common.AppConfig) {
+	file, _ := os.Open(appconfig.Chunk.Filename)
 	defer file.Close()
 	fileinfo, _ := file.Stat()
 	iterations := fileinfo.Size() / appconfig.Chunk.Size

@@ -14,25 +14,26 @@ import (
 	"strconv"
 )
 
-type SqlData struct {
-	Res string `json:"res"`
+type ResponseData struct {
+	Message  string `json:"res"`
+	Filename string `json:"filename"`
 }
 
 func startServer(port string) {
 	router := httprouter.New()
-	router.GET(common.CHUNK_UPLOAD_ENDPOINT, handleFilePut)
-	router.POST(common.FILE_UPLOAD_ENDPOINT, handleWholeFilePut)
+	router.GET(common.CHUNK_UPLOAD_ENDPOINT, handleChunkUpload)
+	router.POST(common.FILE_UPLOAD_ENDPOINT, handleFileUpload)
 	log.Println("Listening on port", port)
 	log.Fatalln(http.ListenAndServe(":"+port, router))
 
 }
 
-func handleWholeFilePut(rw http.ResponseWriter, req *http.Request, params httprouter.Params) {
+func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprouter.Params) {
 	file, header, _ := req.FormFile("file")
 	defer file.Close()
 	appConfig := common.GetAppConfig()
 	chunkAndSend(appConfig, &file, header)
-	respondJson(rw, http.StatusOK, &SqlData{Res: req.Host})
+	respondJson(rw, http.StatusOK, &ResponseData{Filename: header.Filename, Message: "successfully uploaded"})
 
 }
 
@@ -58,24 +59,22 @@ func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *mul
 
 }
 
-func handleFilePut(rw http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func handleChunkUpload(rw http.ResponseWriter, req *http.Request, p httprouter.Params) {
 	query := req.URL.Query()
 	total, filename := query.Get("total"), query.Get("filename")
 	agent := req.Header.Get("User-Agent")
 	offset := req.Header.Get("offset")
-	//fmt.n("agent ", agent, filename)
 	var file *os.File
 	file, _ = os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
-	ch, _ := ioutil.ReadAll(req.Body)
-	cf, _ := strconv.ParseInt(offset, 10, 64)
-	file.WriteAt(ch, cf)
+	chunk, _ := ioutil.ReadAll(req.Body)
+	off, _ := strconv.ParseInt(offset, 10, 64)
+	file.WriteAt(chunk, off)
 	if agent == common.AGENT_CLIENT {
-		sendToAllOtherServers(common.GetAppConfig(), req.RequestURI, cf, ch)
+		sendToAllOtherServers(common.GetAppConfig(), req.RequestURI, off, chunk)
 	}
 	if x := checkIfAllChunksReceived(total, p.ByName("id")); x {
-		fmt.Println("done completed : ")
-		respondJson(rw, http.StatusOK, &SqlData{Res: req.Host})
-		return
+		fmt.Println("All chunks received, fileId : ", filename)
+		respondJson(rw, http.StatusOK, &ResponseData{Filename: filename, Message: "successfully uploaded"})
 	}
 }
 
