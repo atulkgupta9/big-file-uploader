@@ -44,6 +44,7 @@ func GetAppConfig() *AppConfig {
 	if err != nil {
 		fmt.Printf("Unable to decode into struct, %v", err)
 	}
+	fmt.Printf("%+v\n", appConfig)
 	return &appConfig
 }
 

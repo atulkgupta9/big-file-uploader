@@ -44,7 +44,6 @@ func handleIndex(writer http.ResponseWriter, request *http.Request, params httpr
 	}
 	t.Execute(writer, nil)
 }
-
 func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprouter.Params) {
 	t1 := time.Now()
 	file, header, _ := req.FormFile("file")
@@ -55,6 +54,11 @@ func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprout
 
 }
 
+/*
+	sending all chunks concurrently using a buffered channel to limit maximum no of FileDescriptors,
+	not using buffered channel and spawning thousands of goroutines caused "tcp too many open connections"
+
+*/
 func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *multipart.FileHeader) {
 	filesize := header.Size
 	iterations := filesize / appconfig.Chunk.Size
@@ -66,23 +70,32 @@ func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *mul
 	}
 	wg := sync.WaitGroup{}
 	wg.Add(int(total))
+	//maximum we want to process 100 goroutines at once to hit server to upload chunk
+	maxChan := make(chan bool, 100)
 	for i := int64(0); i < iterations; i++ {
-		go readAndSend(&wg, appconfig.Chunk.Size, appconfig.Chunk.Size*i, i, total, file, fx)
+		//will be able to send only if there are less then equal to 100 entries in buffered channel
+		//will be blocking if already 100 are there in channel waiting to process
+		maxChan <- true
+		go readAndSend(&wg, maxChan, appconfig.Chunk.Size, appconfig.Chunk.Size*i, i, total, file, fx)
 	}
 	if remainder != 0 {
-		go readAndSend(&wg, remainder, appconfig.Chunk.Size*iterations, total, total, file, fx)
+		maxChan <- true
+		go readAndSend(&wg, maxChan, remainder, appconfig.Chunk.Size*iterations, total, total, file, fx)
 	}
 	fmt.Println("goroutines spawned", runtime.NumGoroutine())
 	wg.Wait()
 }
 
-func readAndSend(wg *sync.WaitGroup, toReadBytes, offset, i, total int64, file *multipart.File, fx string) {
+func readAndSend(wg *sync.WaitGroup, maxChan chan bool, toReadBytes, offset, i, total int64, file *multipart.File, fx string) {
 	defer wg.Done()
+	//freeing up buffer as execution of this method completes
+	defer func(maxChan chan bool) { <-maxChan }(maxChan)
 	toRead := make([]byte, toReadBytes)
 	(*file).ReadAt(toRead, offset)
 	common.SendRequest(toRead, offset, i+1, fx, total)
 }
 
+//this function is called by all the chunks which hit the endpoint handleChunkUpload
 func handleChunkUpload(rw http.ResponseWriter, req *http.Request, p httprouter.Params) {
 	query := req.URL.Query()
 	total, filename := query.Get("total"), query.Get("filename")
@@ -108,6 +121,7 @@ func sendToAllOtherServers(config *common.AppConfig, url string, offset int64, b
 	wg.Add(len(config.Server.Addr))
 	for i := 0; i < len(config.Server.Addr); i++ {
 		url := config.Server.Addr[i] + url
+		//sending across each server asynchronously
 		go common.DoRequest(common.GET_METHOD, url, common.AGENT_SERVER, offset, body)
 		wg.Done()
 	}
