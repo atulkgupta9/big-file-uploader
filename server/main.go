@@ -122,11 +122,16 @@ func sendToAllOtherServers(config *common.AppConfig, url string, offset int64, b
 	for i := 0; i < len(config.Server.Addr); i++ {
 		url := config.Server.Addr[i] + url
 		//sending across each server asynchronously
-		go common.DoRequest(common.GET_METHOD, url, common.AGENT_SERVER, offset, body)
-		wg.Done()
+		go wrapDoRequest(&wg, url, offset, body)
 	}
 	wg.Wait()
 }
+
+func wrapDoRequest(wg *sync.WaitGroup, url string, offset int64, body []byte) {
+	common.DoRequest(common.GET_METHOD, url, common.AGENT_SERVER, offset, body)
+	wg.Done()
+}
+
 
 func checkIfAllChunksReceived(total string, id string) bool {
 	return id == total
