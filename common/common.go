@@ -18,6 +18,8 @@ const FILE_UPLOAD_ENDPOINT = "/file"
 const AGENT_CLIENT = "client"
 const AGENT_SERVER = "server"
 
+var appconfig = GetAppConfig()
+
 type AppConfig struct {
 	Chunk  Chunk
 	Server Server
@@ -42,6 +44,7 @@ func GetAppConfig() *AppConfig {
 	if err != nil {
 		fmt.Printf("Unable to decode into struct, %v", err)
 	}
+	fmt.Printf("%+v\n", appConfig)
 	return &appConfig
 }
 
@@ -50,13 +53,17 @@ func DoRequest(method, url, agent string, offset int64, body []byte) error {
 	req, _ := http.NewRequest(method, url, bytes.NewReader(body))
 	req.Header.Set("User-Agent", agent)
 	req.Header.Set("offset", strconv.FormatInt(offset, 10))
-	_, err := client.Do(req)
+	res, err := client.Do(req)
+	if err != nil {
+		fmt.Errorf("here err", err.Error())
+		panic(err)
+	}
+	defer res.Body.Close()
 	return err
 }
 
 func GetMeServerAdd() string {
 	rand.Seed(time.Now().UnixNano())
-	appconfig := GetAppConfig()
 	return appconfig.Server.Addr[rand.Intn(len(appconfig.Server.Addr))]
 }
 
