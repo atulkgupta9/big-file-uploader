@@ -11,3 +11,6 @@
 ##Curl to upload file
 curl --location --request POST '127.0.0.1:3001/file' \
 --form 'file=@/home/use/66B.cpp'
+
+##Dummy-UI
+a dummy ui to upload file can be accessed at : http://127.0.0.1:3001/index
