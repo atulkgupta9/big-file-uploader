@@ -1,18 +1,16 @@
 package main
 
 import (
-	"../common"
 	"encoding/json"
-	"fmt"
+	"github.com/atulkgupta9/big-file-uploader/common"
 	"github.com/chilts/sid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sirupsen/logrus"
 	"html/template"
 	"io/ioutil"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -30,27 +28,37 @@ func startServer(port string) {
 	router.GET(common.CHUNK_UPLOAD_ENDPOINT, handleChunkUpload)
 	router.POST(common.FILE_UPLOAD_ENDPOINT, handleFileUpload)
 	router.GET("/index", handleIndex)
-	router.ServeFiles("/ui/*filepath", http.Dir("../static"))
-	log.Println("Listening on port", port)
-	log.Fatalln(http.ListenAndServe(":"+port, router))
+	router.ServeFiles("/ui/*filepath", http.Dir("/home/use/GolandProjects/big-file-upload/static"))
+	logrus.Info("Listening on port ", port)
+	logrus.Fatalln(http.ListenAndServe(":"+port, router))
 
 }
 
 func handleIndex(writer http.ResponseWriter, request *http.Request, params httprouter.Params) {
-	t, err := template.ParseFiles("../static/index.html")
+	t, err := template.ParseFiles("/home/use//GolandProjects/big-file-upload/static/index.html")
 	if err != nil {
-		fmt.Errorf("error serving file", err.Error())
+		logrus.Error("error serving file", err.Error())
 		panic(err)
 	}
 	t.Execute(writer, nil)
 }
 func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprouter.Params) {
 	t1 := time.Now()
-	file, header, _ := req.FormFile("file")
+	file, header, err := req.FormFile("file")
+	if err != nil {
+		logrus.Error("could not read multipart file ", err)
+		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: "", Message: "could not upload file"})
+		return
+	}
 	defer file.Close()
-	chunkAndSend(config, &file, header)
+	err = chunkAndSend(config, &file, header)
+	if err != nil {
+		logrus.Error("Could not chunk the file ", err)
+		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: "", Message: "could not upload file"})
+		return
+	}
+	logrus.Info("total time taken in serving request file size ", header.Size/(1024*1024), time.Now().Sub(t1))
 	respondJson(rw, http.StatusOK, &ResponseData{Filename: header.Filename, Message: "successfully uploaded"})
-	fmt.Println("total time taken in serving request file size ", header.Size/(1024*1024), time.Now().Sub(t1))
 
 }
 
@@ -59,7 +67,7 @@ func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprout
 	not using buffered channel and spawning thousands of goroutines caused "tcp too many open connections"
 
 */
-func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *multipart.FileHeader) {
+func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *multipart.FileHeader) error {
 	filesize := header.Size
 	iterations := filesize / appconfig.Chunk.Size
 	fx := sid.IdBase64() + header.Filename
@@ -82,17 +90,20 @@ func chunkAndSend(appconfig *common.AppConfig, file *multipart.File, header *mul
 		maxChan <- true
 		go readAndSend(&wg, maxChan, remainder, appconfig.Chunk.Size*iterations, total, total, file, fx)
 	}
-	fmt.Println("goroutines spawned", runtime.NumGoroutine())
 	wg.Wait()
+	return nil
 }
 
-func readAndSend(wg *sync.WaitGroup, maxChan chan bool, toReadBytes, offset, i, total int64, file *multipart.File, fx string) {
-	defer wg.Done()
+func readAndSend(wg *sync.WaitGroup, maxChan chan bool, toReadBytes, offset, i, total int64, file *multipart.File, fx string) error {
 	//freeing up buffer as execution of this method completes
+	defer wg.Done()
 	defer func(maxChan chan bool) { <-maxChan }(maxChan)
 	toRead := make([]byte, toReadBytes)
-	(*file).ReadAt(toRead, offset)
-	common.SendRequest(toRead, offset, i+1, fx, total)
+	_, err := (*file).ReadAt(toRead, offset)
+	if err != nil {
+		return err
+	}
+	return common.SendRequest(toRead, offset, i+1, fx, total)
 }
 
 //this function is called by all the chunks which hit the endpoint handleChunkUpload
@@ -102,36 +113,57 @@ func handleChunkUpload(rw http.ResponseWriter, req *http.Request, p httprouter.P
 	agent := req.Header.Get("User-Agent")
 	offset := req.Header.Get("offset")
 	var file *os.File
-	file, _ = os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
-	chunk, _ := ioutil.ReadAll(req.Body)
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		logrus.Error("Could not open a file", err)
+		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: filename, Message: "could not upload file"})
+	}
+	defer file.Close()
+	chunk, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		logrus.Error("Could not read request body")
+		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: filename, Message: "could not upload file"})
+	}
 	defer req.Body.Close()
-	off, _ := strconv.ParseInt(offset, 10, 64)
-	file.WriteAt(chunk, off)
+	off, err := strconv.ParseInt(offset, 10, 64)
+	if err != nil {
+		logrus.Error("Could not parse offset as integer in header")
+		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: filename, Message: "could not upload file"})
+	}
+	_, err = file.WriteAt(chunk, off)
+	if err != nil {
+		logrus.Error("Could not write chunk at file")
+		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: filename, Message: "could not upload file"})
+	}
 	if agent == common.AGENT_CLIENT {
-		sendToAllOtherServers(config, req.RequestURI, off, chunk)
+		err := sendToAllOtherServers(config, req.RequestURI, off, chunk)
+		if err != nil {
+			logrus.Error("Could not send chunk to all servers")
+			respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: "", Message: "could not upload file"})
+		}
 	}
 	if x := checkIfAllChunksReceived(total, p.ByName("id")); x {
-		fmt.Println("All chunks received, fileId : ", filename)
+		logrus.Info("All chunks received, fileId : ", filename)
 		respondJson(rw, http.StatusOK, &ResponseData{Filename: filename, Message: "successfully uploaded"})
 	}
 }
 
-func sendToAllOtherServers(config *common.AppConfig, url string, offset int64, body []byte) {
+func sendToAllOtherServers(config *common.AppConfig, url string, offset int64, body []byte) error {
 	wg := sync.WaitGroup{}
 	wg.Add(len(config.Server.Addr))
+	defer wg.Wait()
 	for i := 0; i < len(config.Server.Addr); i++ {
 		url := config.Server.Addr[i] + url
 		//sending across each server asynchronously
 		go wrapDoRequest(&wg, url, offset, body)
 	}
-	wg.Wait()
+	return nil
 }
 
-func wrapDoRequest(wg *sync.WaitGroup, url string, offset int64, body []byte) {
-	common.DoRequest(common.GET_METHOD, url, common.AGENT_SERVER, offset, body)
-	wg.Done()
+func wrapDoRequest(wg *sync.WaitGroup, url string, offset int64, body []byte) error {
+	defer wg.Done()
+	return common.DoRequest(common.GET_METHOD, url, common.AGENT_SERVER, offset, body)
 }
-
 
 func checkIfAllChunksReceived(total string, id string) bool {
 	return id == total
@@ -150,6 +182,7 @@ func respondJson(w http.ResponseWriter, status int, payload interface{}) {
 }
 
 func main() {
+	initializeLogger()
 	startServerAny()
 }
 
@@ -159,4 +192,12 @@ func startServerAny() {
 		return
 	}
 	startServer(os.Args[1])
+}
+
+func initializeLogger() {
+	customFormatter := new(logrus.TextFormatter)
+	customFormatter.TimestampFormat = "2020-06-04 15:04:05"
+	logrus.SetFormatter(customFormatter)
+	logrus.SetReportCaller(true)
+	customFormatter.FullTimestamp = true
 }
