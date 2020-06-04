@@ -2,7 +2,7 @@ package common
 
 import (
 	"bytes"
-	"fmt"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"math/rand"
 	"net/http"
@@ -38,28 +38,29 @@ func GetAppConfig() *AppConfig {
 	viper.SetConfigType("yml")
 	viper.AddConfigPath("..")
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Error reading config file, %s", err)
+		logrus.Info("Error reading config file ", err)
 	}
 	err := viper.Unmarshal(&appConfig)
 	if err != nil {
-		fmt.Printf("Unable to decode into struct, %v", err)
+		logrus.Info("Unable to decode into struct ", err)
 	}
-	fmt.Printf("%+v\n", appConfig)
 	return &appConfig
 }
 
 func DoRequest(method, url, agent string, offset int64, body []byte) error {
 	client := &http.Client{}
-	req, _ := http.NewRequest(method, url, bytes.NewReader(body))
+	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
 	req.Header.Set("User-Agent", agent)
 	req.Header.Set("offset", strconv.FormatInt(offset, 10))
 	res, err := client.Do(req)
 	if err != nil {
-		fmt.Errorf("here err", err.Error())
-		panic(err)
+		return err
 	}
 	defer res.Body.Close()
-	return err
+	return nil
 }
 
 func GetMeServerAdd() string {
@@ -67,7 +68,7 @@ func GetMeServerAdd() string {
 	return appconfig.Server.Addr[rand.Intn(len(appconfig.Server.Addr))]
 }
 
-func SendRequest(buffer []byte, offset int64, sequence int64, fx string, total int64) {
+func SendRequest(buffer []byte, offset int64, sequence int64, fx string, total int64) error {
 	url := GetMeServerAdd() + CHUNK_UPLOAD_ENDPOINT + strconv.FormatInt(sequence, 10) + "?&filename=" + fx + "&total=" + strconv.FormatInt(total, 10)
-	DoRequest(GET_METHOD, url, AGENT_CLIENT, offset, buffer)
+	return DoRequest(GET_METHOD, url, AGENT_CLIENT, offset, buffer)
 }
