@@ -5,6 +5,7 @@ import (
 	"github.com/atulkgupta9/big-file-uploader/common"
 	"github.com/chilts/sid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 	"html/template"
 	"io/ioutil"
@@ -30,7 +31,8 @@ func startServer(port string) {
 	router.GET("/index", handleIndex)
 	router.ServeFiles("/ui/*filepath", http.Dir("/home/use/GolandProjects/big-file-upload/static"))
 	logrus.Info("Listening on port ", port)
-	logrus.Fatalln(http.ListenAndServe(":"+port, router))
+	handler := cors.Default().Handler(router)
+	logrus.Fatalln(http.ListenAndServe(":"+port, handler))
 
 }
 

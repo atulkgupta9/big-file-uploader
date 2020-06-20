@@ -16,10 +16,9 @@ On receiving this chunk, server will
 
 
 # To Run
-## Run two instances on two ports as follows. 
-1. cd server 
-2. go run main.go 3001 
-3. go run main.go 3002
+## Run two build files in two terminals as follows:
+1. ./build-1.sh
+2. ./build-2.sh
 
 ## To Run from client specify the file to be uploaded in config.yml
 1. cd client
@@ -27,7 +26,7 @@ On receiving this chunk, server will
 
 ## Curl to upload file
 curl --location --request POST '127.0.0.1:3001/file' \
---form 'file=@/home/use/66B.cpp'
+--form 'file=@/home/use/filename'
 
 ## Dummy-UI
 a dummy ui to upload file can be accessed at : http://127.0.0.1:3001/index
