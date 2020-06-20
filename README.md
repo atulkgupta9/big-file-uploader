@@ -30,3 +30,6 @@ curl --location --request POST '127.0.0.1:3001/file' \
 
 ## Dummy-UI
 a dummy ui to upload file can be accessed at : http://127.0.0.1:3001/index
+
+### Sample upload using React 
+![Alternate UI](https://github.com/atulkgupta9/big-file-uploader/raw/master/static/img/img.gif)
