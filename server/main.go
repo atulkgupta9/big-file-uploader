@@ -18,8 +18,10 @@ import (
 )
 
 type ResponseData struct {
-	Message  string `json:"res"`
-	Filename string `json:"filename"`
+	Message   string  `json:"res"`
+	Filename  string  `json:"filename"`
+	TimeTaken float64 `json:"time_taken"`
+	FileSize  int64   `json:"file_size"`
 }
 
 var config = common.GetAppConfig()
@@ -59,8 +61,10 @@ func handleFileUpload(rw http.ResponseWriter, req *http.Request, params httprout
 		respondJson(rw, http.StatusInternalServerError, &ResponseData{Filename: "", Message: "could not upload file"})
 		return
 	}
-	logrus.Info("total time taken in serving request file size ", header.Size/(1024*1024), time.Now().Sub(t1))
-	respondJson(rw, http.StatusOK, &ResponseData{Filename: header.Filename, Message: "successfully uploaded"})
+	filesize := header.Size / (1024 * 1024)
+	timeTaken := time.Now().Sub(t1)
+	logrus.Info("total time taken in serving request file size ", filesize, timeTaken)
+	respondJson(rw, http.StatusOK, &ResponseData{Filename: header.Filename, Message: "successfully uploaded", TimeTaken: timeTaken.Seconds(), FileSize: filesize})
 
 }
 
